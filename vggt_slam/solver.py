@@ -305,9 +305,6 @@ class Solver:
         print(f"Loaded and preprocessed {len(image_names)} images in {time.time() - t1:.2f} seconds")
         print(f"Preprocessed images shape: {images.shape}")
 
-        # print("Running inference...")
-        dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
-
         # First submap so set new pcd num to 0
         if self.map.get_largest_key() is None:
             new_pcd_num = 0

@@ -74,6 +74,30 @@ chmod +x setup.sh
 
 ## Quick Start
 
+### 本机独立环境（GTX 1060 / 6GB 显存）
+
+本地配置使用 Python 3.11，缓存、权重和虚拟环境均保存在项目目录中。
+首次配置会下载基础 SLAM 依赖、VGGT 和 SALAD 模型权重：
+
+```bash
+./setup_local.sh
+./run_local.sh
+```
+
+浏览器访问 <http://localhost:8080> 查看地图。建图完成后服务继续运行，
+按 `Ctrl+C` 停止。默认子地图包含 2 个新关键帧和 1 个重叠帧；
+不支持 BF16 的显卡使用 FP16 提取特征，相机和深度预测保留 FP32。
+位姿与点云结果保存在 `logs/office_loop_poses.txt` 和
+`logs/office_loop_poses_points.pcd`，后台启动时可将输出重定向到日志：
+
+```bash
+nohup ./run_local.sh > logs/run_local.log 2>&1 &
+```
+
+使用自己的图像目录时运行 `./run_local.sh --image_folder /path/to/images`。
+本地脚本配置基础建图；`--run_os` 需要按上面的完整安装流程另外配置
+Perception Encoder、SAM 3 及其模型访问权限。
+
 run `python main.py --image_folder /path/to/image/folder --max_loops 1 --vis_map` replacing the image path with your folder of images. 
 This will create a visualization in viser which shows the incremental construction of the map.
 

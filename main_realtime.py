@@ -12,7 +12,7 @@ import vggt_slam.slam_utils as utils
 from vggt_slam.solver import Solver
 from vggt_slam.cameras import BACKENDS
 
-from vggt.models.vggt import VGGT
+from vggt_slam.model_utils import load_vggt_model
 
 # --- Thread Safety Primitives ---
 solver_lock = threading.Lock()  # Ensures only one solver thread runs at a time
@@ -181,13 +181,8 @@ def main():
         clip_model, clip_preprocess = None, None
         clip_tokenizer, processor = None, None
 
-    model = VGGT()
-    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
-
-    model.eval()
-    model = model.to(torch.bfloat16)  # use half precision
-    model = model.to(device)
+    # 与离线入口复用模型加载逻辑，兼容不支持 BF16 的显卡。
+    model = load_vggt_model(device)
     print("All models loaded. Starting SLAM loop.")
 
     # Register the viser object-query panel so the user can search for objects

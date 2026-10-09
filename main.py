@@ -14,7 +14,7 @@ import vggt_slam.slam_utils as utils
 from vggt_slam.solver import Solver
 from vggt_slam.submap import Submap
 
-from vggt.models.vggt import VGGT
+from vggt_slam.model_utils import load_vggt_model
 
 parser = argparse.ArgumentParser(description="VGGT-SLAM demo")
 parser.add_argument("--image_folder", type=str, default="examples/kitchen/images/", help="Path to folder containing images")
@@ -32,11 +32,12 @@ parser.add_argument("--max_loops", type=int, default=1, help="ONLY DEFAULT OF 1 
 parser.add_argument("--min_disparity", type=float, default=50, help="Minimum disparity to generate a new keyframe")
 parser.add_argument("--conf_threshold", type=float, default=25.0, help="Initial percentage of low-confidence points to filter out")
 parser.add_argument("--lc_thres", type=float, default=0.95, help="Threshold for image retrieval. Range: [0, 1.0]. Higher = more loop closures")
+parser.add_argument("--keep_alive", action="store_true", help="处理结束后保持可视化服务运行，按 Ctrl+C 退出")
 
 
 def main():
     """
-    Main function that wraps the entire pipeline of VGGT-SLAM.
+    执行图像序列建图，并根据参数保留可视化服务。
     """
     args = parser.parse_args()
 
@@ -71,13 +72,7 @@ def main():
         clip_model, clip_preprocess = None, None
         clip_tokenizer = None
 
-    model = VGGT()
-    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
-
-    model.eval()
-    model = model.to(torch.bfloat16)  # use half precision
-    model = model.to(device)
+    model = load_vggt_model(device)
 
     # Use the provided image folder path
     print(f"Loading images from {args.image_folder}...")
@@ -208,6 +203,15 @@ def main():
         if not args.skip_dense_log:
             # Log the full point cloud as one file
             solver.map.write_points_to_file(solver.graph, args.log_path.replace(".txt", "_points.pcd"))
+
+    if args.keep_alive:
+        # 建图完成后继续提供浏览器访问，避免程序退出导致地图无法查看。
+        print("建图完成，可视化服务继续运行：http://localhost:8080（Ctrl+C 退出）")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            solver.viewer.server.stop()
 
 
 if __name__ == "__main__":
