@@ -1,0 +1,4 @@
+.venv/bin/python view_pcd.py
+./open_viewer.sh 8081
+
+./open_viewer.sh 

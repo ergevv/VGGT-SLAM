@@ -142,7 +142,7 @@ class Solver:
             P_temp = np.linalg.inv(prior_submap.proj_mats[-1]) @ current_submap.proj_mats[0]
             t1 = (P_temp[0:3,0:3] @ current_submap.get_frame_pointcloud(frame_id_curr).reshape(-1, 3)[good_mask].T).T
             t2 = prior_submap.get_frame_pointcloud(frame_id_prev).reshape(-1, 3)[good_mask]
-            scale_factor_est_output = estimate_scale_pairwise(t1, t2)
+            scale_factor_est_output = estimate_scale_pairwise(t1, t2) # 这是来自不同的图像，深度的比例不一致，需要对齐缩放
             print(colored("scale factor", 'green'), scale_factor_est_output)
             scale_factor = scale_factor_est_output[0]
             H_scale = np.diag((scale_factor, scale_factor, scale_factor, 1.0))
@@ -168,8 +168,8 @@ class Solver:
 
         else:
             assert (submap_id_curr == 0 and frame_id_curr == 0), "First added node must be submap 0 frame 0"
-            self.graph.add_homography(submap_id_curr + frame_id_curr, H_w_submap)
-            self.graph.add_prior_factor(submap_id_curr + frame_id_curr, H_w_submap)
+            self.graph.add_homography(submap_id_curr + frame_id_curr, H_w_submap)  # 设置初始的H
+            self.graph.add_prior_factor(submap_id_curr + frame_id_curr, H_w_submap) # 对应的先验值
             if DEBUG:
                 print("Adding first homography of graph: \n", submap_id_curr + frame_id_curr, H_w_submap / H_w_submap[-1,-1])
 
@@ -183,13 +183,13 @@ class Solver:
             if index == 0:
                 continue
 
-            H_inner = world_to_cam[index-1] @ np.linalg.inv(pose) # TODO Dominic, no need to take the inverse twice, just use cam_to_world
-            current_node = self.graph.get_homography(submap_id_curr + index - 1) @ H_inner
+            H_inner = world_to_cam[index-1] @ np.linalg.inv(pose) # TODO Dominic, no need to take the inverse twice, just use cam_to_world，当前帧相对于上一帧的位姿
+            current_node = self.graph.get_homography(submap_id_curr + index - 1) @ H_inner #获取当前帧的全局位姿
 
             # Add node to graph.
             self.graph.add_homography(submap_id_curr + index, current_node)
 
-            # Add between factor for inner submap constraint.
+            # Add between factor for inner submap constraint. 添加当前帧和上一帧之间的约束
             self.graph.add_between_factor(submap_id_curr + index - 1, submap_id_curr + index, H_inner, self.graph.inner_submap_noise)
 
             if DEBUG:
@@ -221,7 +221,7 @@ class Solver:
         depth_map = pred_dict["depth"]  # (S, H, W, 1)
         conf = pred_dict["depth_conf"]  # (S, H, W)
 
-        world_points = unproject_depth_map_to_point_map(depth_map, extrinsics_cam, intrinsics_cam)
+        world_points = unproject_depth_map_to_point_map(depth_map, extrinsics_cam, intrinsics_cam) # 其实是相机坐标系下的点
 
         colors = (images.transpose(0, 2, 3, 1) * 255).astype(np.uint8)  # now (S, H, W, 3)
         cam_to_world = closed_form_inverse_se3(extrinsics_cam)  # shape (S, 4, 4)
@@ -267,7 +267,7 @@ class Solver:
             intrinsics_cam = pred_dict["intrinsic_lc"]
             
 
-            world_points_lc = unproject_depth_map_to_point_map(depth_map_lc, pred_dict["extrinsic_lc"], intrinsics_cam)
+            world_points_lc = unproject_depth_map_to_point_map(depth_map_lc, pred_dict["extrinsic_lc"], intrinsics_cam) # 相机坐标系下的点云
 
             lc_submap_num = self.map.get_largest_key() + self.map.get_latest_submap().get_last_non_loop_frame_index() + 1
             print(f"Creating new Loop closure submap with id {lc_submap_num}")
@@ -337,7 +337,7 @@ class Solver:
         # Check for loop closures and add retrieval vectors from new submap to the database
         predictions_lc = None
         with self.loop_closure_timer:
-            detected_loops = self.image_retrieval.find_loop_closures(self.map, new_submap, max_loop_closures=max_loops, max_similarity_thres=self.lc_thres)
+            detected_loops = self.image_retrieval.find_loop_closures(self.map, new_submap, max_loop_closures=max_loops, max_similarity_thres=self.lc_thres) # 遍历地图的所有帧，寻找相似帧
         loop_closure_frame_names = []
         if len(detected_loops) > 0:
             print(colored("detected_loops", "yellow"), detected_loops)

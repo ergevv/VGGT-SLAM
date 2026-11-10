@@ -97,7 +97,7 @@ def main():
                 img = cv2.imread(image_name)
                 enough_disparity = solver.flow_tracker.compute_disparity(img, args.min_disparity, args.vis_flow)
                 if enough_disparity:
-                    image_names_subset.append(image_name)
+                    image_names_subset.append(image_name) #视差过大，则认为需要更新关键帧
                     image_count += 1
         else:
             image_names_subset.append(image_name)
@@ -114,7 +114,7 @@ def main():
             solver.add_points(predictions)
 
             with backend_time:
-                solver.graph.optimize()
+                solver.graph.optimize() # 只有位姿优化
 
             loop_closure_detected = len(predictions["detected_loops"]) > 0
             if args.vis_map:

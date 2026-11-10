@@ -35,7 +35,7 @@ class CompatibleVGGT(VGGT):
         )
         # 相机和深度预测保留单精度，避免 FP16 的取值范围影响几何结果。
         geometry_tokens = [token.float() for token in tokens]
-        pose_enc_list = self.camera_head(geometry_tokens)
+        pose_enc_list = self.camera_head(geometry_tokens) # [tx, ty, tz, qx, qy, qz, qw, fov_h, fov_w]
         depth, depth_conf = self.depth_head(
             geometry_tokens, images=images.float(), patch_start_idx=patch_start_idx
         )

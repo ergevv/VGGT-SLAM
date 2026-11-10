@@ -80,7 +80,7 @@ class ImageRetrieval:
         for query_vector in submap.get_all_retrieval_vectors():
             best_score, best_submap_id, best_frame_id = map.retrieve_best_score_frame(query_vector, submap.get_id(), ignore_last_submap=True)
             if best_score < max_similarity_thres:
-                new_match_data = LoopMatch(best_score, submap.get_id(), query_id, best_submap_id, best_frame_id)
+                new_match_data = LoopMatch(best_score, submap.get_id(), query_id, best_submap_id, best_frame_id)    # 当前子地图 12 的第 3 帧与历史子地图 5 的第 7 帧外观上比较相似，描述子距离为 0.42           
                 matches_queue.add(new_match_data)
             query_id += 1
         

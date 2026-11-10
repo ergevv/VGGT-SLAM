@@ -55,7 +55,7 @@ class FrameTracker:
             cv2.imshow("Optical Flow", vis)
             cv2.waitKey(1)
 
-        if mean_disparity > min_disparity:
+        if mean_disparity > min_disparity: #视差过大，则认为需要更新关键帧
             self.initialize_keyframe(image)
             return True
         else:

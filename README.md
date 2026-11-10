@@ -36,6 +36,7 @@
 * [⚡ Running Online](#Running-Online)
 * [📄 News and Updates](#News-and-Updates)
 * [📄 Paper Citation](#citation)
+* [📘 项目讲解文档](docs/VGGT-SLAM-项目讲解.md)
 
 ---
 
@@ -97,6 +98,30 @@ nohup ./run_local.sh > logs/run_local.log 2>&1 &
 使用自己的图像目录时运行 `./run_local.sh --image_folder /path/to/images`。
 本地脚本配置基础建图；`--run_os` 需要按上面的完整安装流程另外配置
 Perception Encoder、SAM 3 及其模型访问权限。
+
+如果浏览器整页空白，且控制台提示 `Error creating WebGL context` 或
+`GL_RENDERER = Disabled`，说明浏览器无法初始化 3D 渲染。保持建图进程运行，
+在另一个终端执行下面的命令即可查看当前地图，无需重新建图：
+
+```bash
+./open_viewer.sh
+```
+
+该脚本使用独立的 Chrome 配置和 SwiftShader 软件 WebGL，仅打开本机 Viser
+页面，保留浏览器沙箱。地图由 CPU 渲染，速度可能低于硬件渲染。
+若 Viser 实际监听其他端口，可运行 `./open_viewer.sh 8081` 指定端口。
+
+已保存的点云可以独立读取和查看，不需要重新建图或加载模型：
+
+```bash
+.venv/bin/python view_pcd.py
+# 在另一个终端打开软件渲染浏览器。
+./open_viewer.sh 8081
+```
+
+查看器默认读取 `logs/office_loop_poses_points.pcd`，以 0.05 的体素大小
+降采样显示，保留颜色，不修改原文件。也可指定文件和显示参数：
+`.venv/bin/python view_pcd.py /path/to/map.pcd --voxel_size 0.02 --port 8081`。
 
 run `python main.py --image_folder /path/to/image/folder --max_loops 1 --vis_map` replacing the image path with your folder of images. 
 This will create a visualization in viser which shows the incremental construction of the map.
