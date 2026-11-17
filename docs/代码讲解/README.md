@@ -4,6 +4,8 @@
 
 主文档现已包含聊天主线和仓库中 vggt_slam_tutorial 的完整章节原文，约 3290 行；不需要跳转到其他文件才能看到 Aggregator、Camera/DPT head、SALAD、SL(4)、回环、PCD 和排障的详细解释。
 
+如果要查看 10 月 10 日周六 14:32 开始的原始聊天，请直接打开 [2026-10-10-14-32-VGGT-SLAM-聊天原文.md](2026-10-10-14-32-VGGT-SLAM-聊天原文.md)。该文件按原顺序保存用户和助手消息，不是改写后的教程。
+
 推荐先读 [VGGT-SLAM-代码讲解.md](VGGT-SLAM-代码讲解.md)，再按需要展开：
 
 1. [运行时管线、状态所有权与线程边界](../vggt_slam_tutorial/01a_runtime_pipeline_and_state_ownership.md)

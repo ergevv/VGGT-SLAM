@@ -152,12 +152,12 @@ class Solver:
                 debug_visualize(scale_factor*t1, t2)
 
             # Compute the first camera matrix of the new submap in world frame.
-            H_overlap_prior_overlap_current = np.linalg.inv(prior_submap.proj_mats[-1]) @ current_submap.proj_mats[0] @ H_scale
+            H_overlap_prior_overlap_current = np.linalg.inv(prior_submap.proj_mats[-1]) @ current_submap.proj_mats[0] @ H_scale # p_pre = H * p_cur
             H_w_submap = self.graph.get_homography(overlapping_node_id_prev) @ H_overlap_prior_overlap_current
 
             # Add first node of the new submap to the graph.
             if not is_loop_closure:
-                self.graph.add_homography(submap_id_curr + frame_id_curr, H_w_submap)
+                self.graph.add_homography(submap_id_curr + frame_id_curr, H_w_submap) #同一帧图像在不同子地图有不同约束
 
             # Add between factor for intra submaps constraint.
             self.graph.add_between_factor(overlapping_node_id_prev, submap_id_curr + frame_id_curr, H_overlap_prior_overlap_current, self.graph.intra_submap_noise)
@@ -168,13 +168,13 @@ class Solver:
 
         else:
             assert (submap_id_curr == 0 and frame_id_curr == 0), "First added node must be submap 0 frame 0"
-            self.graph.add_homography(submap_id_curr + frame_id_curr, H_w_submap)  # 设置初始的H
-            self.graph.add_prior_factor(submap_id_curr + frame_id_curr, H_w_submap) # 对应的先验值
+            self.graph.add_homography(submap_id_curr + frame_id_curr, H_w_submap)  # 设置初始的位姿估计值
+            self.graph.add_prior_factor(submap_id_curr + frame_id_curr, H_w_submap) # 对应的先验值，第一帧位姿不能脱离该位姿
             if DEBUG:
                 print("Adding first homography of graph: \n", submap_id_curr + frame_id_curr, H_w_submap / H_w_submap[-1,-1])
 
         # Loop closure only gets intra submap constraints.
-        if is_loop_closure:
+        if is_loop_closure: #回环的话，后续帧就不再添加约束了
             return
 
         # Add nodes and edges for the inner submap constraints.
@@ -187,7 +187,7 @@ class Solver:
             current_node = self.graph.get_homography(submap_id_curr + index - 1) @ H_inner #获取当前帧的全局位姿
 
             # Add node to graph.
-            self.graph.add_homography(submap_id_curr + index, current_node)
+            self.graph.add_homography(submap_id_curr + index, current_node) # 添加当前帧估计初始值
 
             # Add between factor for inner submap constraint. 添加当前帧和上一帧之间的约束
             self.graph.add_between_factor(submap_id_curr + index - 1, submap_id_curr + index, H_inner, self.graph.inner_submap_noise)
@@ -224,7 +224,7 @@ class Solver:
         world_points = unproject_depth_map_to_point_map(depth_map, extrinsics_cam, intrinsics_cam) # 其实是相机坐标系下的点
 
         colors = (images.transpose(0, 2, 3, 1) * 255).astype(np.uint8)  # now (S, H, W, 3)
-        cam_to_world = closed_form_inverse_se3(extrinsics_cam)  # shape (S, 4, 4)
+        cam_to_world = closed_form_inverse_se3(extrinsics_cam)  # shape (S, 4, 4) # 相机坐标系到世界坐标系的转换矩阵Tc1_cn
         h, w = world_points.shape[1:3]
         
         # Create projection matrices
@@ -234,7 +234,7 @@ class Solver:
         world_to_cam = np.linalg.inv(cam_to_world)
 
 
-        submap_id_prev = self.map.get_largest_key(ignore_loop_closure_submaps=True)
+        submap_id_prev = self.map.get_largest_key(ignore_loop_closure_submaps=True) # 最新的submap避免是回环子地图
         submap_id_curr = self.current_working_submap.get_id()
         frame_id_curr = 0
         frame_id_prev = None
@@ -251,7 +251,7 @@ class Solver:
         self.map.add_submap(self.current_working_submap)
 
         # Add all constraints for the new submap.
-        self.add_edge(submap_id_curr, frame_id_curr, submap_id_prev, frame_id_prev, is_loop_closure=False)
+        self.add_edge(submap_id_curr, frame_id_curr, submap_id_prev, frame_id_prev, is_loop_closure=False) # 先添加普通地图
 
         # Add in loop closures if any were detected.
         for index, loop in enumerate(detected_loops):
@@ -285,8 +285,8 @@ class Solver:
             lc_submap.set_conf_masks(conf_lc)
             self.map.add_submap(lc_submap)
 
-            self.add_edge(lc_submap_num, 0, loop.query_submap_id, loop.query_submap_frame, is_loop_closure=False)
-            self.add_edge(loop.detected_submap_id, loop.detected_submap_frame, lc_submap_num, 1, is_loop_closure=True)
+            self.add_edge(lc_submap_num, 0, loop.query_submap_id, loop.query_submap_frame, is_loop_closure=False) #创建回环地图跟当前子地图之间的关系
+            self.add_edge(loop.detected_submap_id, loop.detected_submap_frame, lc_submap_num, 1, is_loop_closure=True) #创建回环地图跟历史子地图之间的关系
 
     def sample_pixel_coordinates(self, H, W, n):
         # Sample n random row indices (y-coordinates)
@@ -301,7 +301,7 @@ class Solver:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         t1 = time.time()
         with self.vggt_timer:
-            images = load_and_preprocess_images(image_names).to(device)
+            images = load_and_preprocess_images(image_names).to(device) #裁剪图像到518*n
         print(f"Loaded and preprocessed {len(image_names)} images in {time.time() - t1:.2f} seconds")
         print(f"Preprocessed images shape: {images.shape}")
 
@@ -317,7 +317,7 @@ class Solver:
         new_submap.add_all_frames(images)
         new_submap.set_frame_ids(image_names)
         new_submap.set_last_non_loop_frame_index(images.shape[0] - 1)
-        new_submap.set_all_retrieval_vectors(self.image_retrieval.get_all_submap_embeddings(new_submap))
+        new_submap.set_all_retrieval_vectors(self.image_retrieval.get_all_submap_embeddings(new_submap))  # 添加图像描述向量，N * 8448，用于回环时检测相似度
         new_submap.set_img_names(image_names)
 
         with self.clip_timer:
@@ -331,22 +331,22 @@ class Solver:
         with torch.no_grad():
             t1 = time.time()
             with self.vggt_timer:
-                predictions = model(images)
+                predictions = model(images) # VGGT推理
             print(f"VGGT model inference took {time.time() - t1:.2f} seconds")
 
         # Check for loop closures and add retrieval vectors from new submap to the database
         predictions_lc = None
         with self.loop_closure_timer:
-            detected_loops = self.image_retrieval.find_loop_closures(self.map, new_submap, max_loop_closures=max_loops, max_similarity_thres=self.lc_thres) # 遍历地图的所有帧，寻找相似帧
+            detected_loops = self.image_retrieval.find_loop_closures(self.map, new_submap, max_loop_closures=max_loops, max_similarity_thres=self.lc_thres) # 全匹配，遍历地图的所有帧，寻找相似帧
         loop_closure_frame_names = []
         if len(detected_loops) > 0:
             print(colored("detected_loops", "yellow"), detected_loops)
-            retrieved_frames = self.map.get_frames_from_loops(detected_loops)
+            retrieved_frames = self.map.get_frames_from_loops(detected_loops) # 取出历史匹配图像
             with torch.no_grad():
                 lc_frames = torch.stack((new_submap.get_frame_at_index(detected_loops[0].query_submap_frame), retrieved_frames[0]), axis=0)
                 predictions_lc = model(lc_frames, compute_similarity=True)
                 loop_closure_frame_names = [new_submap.get_img_names_at_index(detected_loops[0].query_submap_frame), 
-                self.map.get_submap(detected_loops[0].detected_submap_id).get_img_names_at_index(detected_loops[0].detected_submap_frame)]
+                self.map.get_submap(detected_loops[0].detected_submap_id).get_img_names_at_index(detected_loops[0].detected_submap_frame)] # 图像路径
 
             # Visualize loop closure frames
             if DEBUG:
@@ -381,7 +381,7 @@ class Solver:
                 predictions["depth_conf_lc"] = predictions_lc["depth_conf"]
 
             
-        for key in predictions.keys():
+        for key in predictions.keys(): #转化成cpu
             if isinstance(predictions[key], torch.Tensor) and key != "target_tokens":
                 predictions[key] = predictions[key].float().cpu().numpy().squeeze(0)  # remove batch dimension and convert to numpy
     

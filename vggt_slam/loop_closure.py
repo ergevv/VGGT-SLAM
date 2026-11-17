@@ -9,7 +9,8 @@ import os
 
 from salad.eval import load_model # load salad
 
-device = 'cuda'
+# 根据当前硬件选择推理设备；没有 CUDA 时允许本地 CPU 建图继续运行。
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 tensor_transform = T.ToPILImage()
 denormalize = T.Normalize(mean=[-1, -1, -1], std=[2, 2, 2])
