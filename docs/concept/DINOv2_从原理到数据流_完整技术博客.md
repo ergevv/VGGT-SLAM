@@ -386,7 +386,7 @@ $$
 ---
 
 <a id="sec-4"></a>
-## 4. CLS token 与位置编码
+## 4. CLS（Classification Token） token 与位置编码
 
 ### 4.1 CLS token：为整图信息提供一个汇聚位置
 
