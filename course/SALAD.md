@@ -484,6 +484,33 @@ SALAD 因而把问题改成：
 
 这就是最优传输在这里的作用。
 
+### 详细拆解：普通 Softmax 的两个问题，以及 SALAD 的三条改法
+
+如果觉得上面两句话比较抽象，可以对照矩阵 \(A\)（行是槽位，列是 patch）拆开来看：普通 Softmax 只管**每一列的和为 1**，不管**每一行的和是多少**，也没有“丢弃”选项，因此会同时带来两个问题：
+
+1. **大量权重可能集中到同一个槽位（只管列和，不管行和）**  
+   Softmax 是每列独立计算的，完全不限制每个槽位从整张图里总共收走多少权重。假设一张街景图有 529 个 patch，其中 300 个都是大面积的路面或玻璃幕墙，且都最偏好“槽位 1”，每列单独做 Softmax 后，槽位 1 这一行的总权重就可能暴涨到 270 左右，而负责记录“特色招牌”“独特窗框”的其他槽位却几乎分不到权重。结果就是少数槽位被重复背景塞爆，64 个槽位的表达空间分布极不均衡。
+
+2. **无用或干扰 patch 也被迫完整分给普通槽位（没有垃圾桶）**  
+   因为 Softmax 强制每列之和必须等于 1，且只有普通槽位可选，任何 patch 都必须把 100% 的权重塞进普通槽位。回头看上面的矩阵 \(A\)：第 3 列（天空）和第 4 列（会开走的公交车）对地点识别没有帮助甚至会造成干扰，它们对两个槽位的原始分数都是 0，但做完 Softmax 后依然被迫各自分出 `0.5` 给槽位 1、`0.5` 给槽位 2，把整整 `1.0` 的噪声硬塞进了最终描述子。
+
+SALAD 的那句话，正是在逐条解决这两个问题（对应下一章将展开的三项设计）：
+
+| 原文表述 | 对应的数学约束 / 操作 | 解决什么问题 |
+|---|---|---|
+| **控制每个 patch 如何分配** | **列和约束**：\(\sum_{k=1}^{K+1}\bar P_{k,i}=1\) | 每个 patch 的总“贡献额度”固定为 1 单位，避免单个 patch 的权重无限放大。 |
+| **也控制每个槽位接收多少** | **行和约束**：\(\sum_{i=1}^{N}\bar P_{k,i}=1\)（前 \(K\) 行） | 给每个普通槽位设死 1 单位的接收配额。哪怕很多 patch 都偏好同一个槽位，它也最多只收 1 单位，**防止权重扎堆**。 |
+| **增加一个允许弃用信息的出口** | **加入 dustbin（第 \(K+1\) 行）**，承接剩余的 \(N-K\) 单位，并在聚合前丢弃该行 | 给天空、公交车、行人等无用或动态干扰区域一个合法去处，**防止噪声污染普通槽位**。 |
+
+这里还有一个很巧的守恒关系：一张图有 \(N\) 个 patch（总发出量 \(N\)），而 \(K\) 个普通槽位每个只收 1 单位（总接收量 \(K\)），多出来的 \(N-K\) 单位权重必须有出口承接——dustbin 正好接住这 \(N-K\) 单位，让“总发出量”等于“总接收量”，从而可以用最优传输同时满足行约束和列约束。
+
+提前对照一下后面 6.3 节算出的结果，就能直观看出改动前后的区别：
+
+* **普通 Softmax**：天空和公交车各自把 `0.5 + 0.5 = 1.0` 全部塞进了普通槽位。
+* **SALAD（行/列双约束 + dustbin）**：建筑立面和入口结构分别以 `0.6033` 主导槽位 1 和槽位 2；而天空和公交车各自有高达 `0.6806` 的权重流进了 dustbin（最终直接丢弃），落入两个普通槽位的权重各只剩 `0.1597`。
+
+用一个生活比喻来记：把 \(N\) 个 patch 看作 \(N\) 名员工，把 \(K\) 个普通槽位看作 \(K\) 个核心岗位。普通 Softmax 只要求“每人把 100% 精力投进核心岗位”，结果大家一窝蜂挤进热门岗位，连帮倒忙的人也得硬塞进去；而 SALAD 改为：**每人总精力仍是 100%（列约束），每个核心岗位只收 1 个人的满额工作量（行约束），并在旁边增设一个不计入产出的“闲置池”（dustbin）来分流多余和帮倒忙的精力**。
+
 ---
 
 # 五、最优传输在这里“运输”的究竟是什么？
@@ -523,7 +550,7 @@ dustbin
 
 最后一行对应 dustbin。
 
-教学中把它的分数取为 0。官方代码把 dustbin 分数表示为一个共享的可学习标量，对同一张图的所有 patch 使用相同数值。它不是一个为每个 patch 单独输出“无用概率”的分类器。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
+教学中把它的分数取为 0。官方代码把 dustbin 分数表示为一个共享的可学习标量，对同一张图的所有 patch 使用相同数值。这是训练出来一个全局共享的标量，每张图像、每个 patch 都使用同一个 dustbin 分数。
 
 ## 5.2 第一类约束：每个 patch 一共分配 1 单位
 
@@ -577,7 +604,7 @@ SALAD 的目标边缘约束是：
 }
 \]
 
-这组约束对应原论文的最优传输定义。[arXiv](https://arxiv.org/html/2311.15937v2)
+这组约束对应原论文的最优传输定义。
 
 对于我们的例子：
 
@@ -701,7 +728,7 @@ H(\bar P)
 
 > 找到适当的行、列缩放，使矩阵同时满足两类总量约束。
 
-这就是 Sinkhorn 迭代的计算内容；SALAD 官方实现使用对数域运算，避免直接指数计算带来的数值问题。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
+这就是 Sinkhorn 迭代的计算内容；SALAD 官方实现使用对数域运算，避免直接指数计算带来的数值问题。
 
 ---
 
@@ -823,7 +850,7 @@ Q^{(1)}
 
 ## 6.3 三轮之后得到什么？
 
-官方 SALAD 前向使用 3 轮 Sinkhorn 迭代。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
+官方 SALAD 前向使用 3 轮 Sinkhorn 迭代。
 
 对我们的例子，3 轮后：
 
@@ -944,7 +971,7 @@ P=
 
 此时，**不能再把每一列重新归一化到 1**。
 
-否则，原本分给 dustbin 的权重会被重新补回普通槽位，破坏弃用机制。官方实现是直接去掉 dustbin，然后进行加权汇总。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
+否则，原本分给 dustbin 的权重会被重新补回普通槽位，破坏弃用机制。官方实现是直接去掉 dustbin，然后进行加权汇总。
 
 例如，天空进入普通槽位的总权重只有：
 
@@ -1107,7 +1134,7 @@ V\approx
 
 它更强调每个槽位描述的方向，而不是原始幅值。
 
-官方实现对每个槽位沿特征通道维进行 L2 归一化。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
+官方实现对每个槽位沿特征通道维进行 L2 归一化。
 
 ---
 
@@ -1119,7 +1146,7 @@ V\approx
 t_{\mathrm{CLS}}=[1,1,1]^T
 \]
 
-CLS 投影矩阵取：
+CLS 投影矩阵（线性层）取：
 
 \[
 W_g=
@@ -1242,7 +1269,7 @@ s_j=y_q^Ty_j
 
 作为余弦相似度。
 
-然后按 \(s_j\) 从大到小排序，返回候选参考图像。官方评估也是先提取参考图和查询图的描述子，再进行检索。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/eval.py)
+然后按 \(s_j\) 从大到小排序，返回候选参考图像。官方评估也是先提取参考图和查询图的描述子，再进行检索。
 
 整个流程是：
 
@@ -1353,7 +1380,7 @@ B1、B2、B3、B4
 60\times4=240
 \]
 
-张图像。训练采用 Multi-Similarity Loss 和相应的样本对挖掘方法。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/main.py)
+张图像。训练采用 Multi-Similarity Loss 和相应的样本对挖掘方法。
 
 这里的“监督”主要是地点分组，不是像素级语义标注。
 
@@ -1513,7 +1540,7 @@ Sinkhorn 中的迭代由可微的数值运算组成，因此可以沿着这条�
 
 ## 9.4 DINOv2 本身也会更新吗？
 
-会，但标准配置只微调最后 4 个 Transformer block，前面的 block 冻结；SALAD 的投影和聚合相关参数参与训练。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/backbones/dinov2.py)
+会，但标准配置只微调最后 4 个 Transformer block，前面的 block 冻结；SALAD 的投影和聚合相关参数参与训练。
 
 因此：
 
@@ -1577,7 +1604,7 @@ v_k=\sum_i P_{k,i}f_i
 用于聚合局部特征的权重矩阵。
 ```
 
-SALAD 的 Sinkhorn 是聚合器前向计算的一部分，训练与推理都会执行。它不需要在使用时再运行一套 DINOv2 教师—学生训练过程。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
+SALAD 的 Sinkhorn 是聚合器前向计算的一部分，训练与推理都会执行。它不需要在使用时再运行一套 DINOv2 教师—学生训练过程。
 
 ## 10.3 dustbin 不等于动态物体分割
 
@@ -1798,81 +1825,6 @@ print("\n描述子长度:\n", descriptor.norm())
 描述子长度：
 1
 ```
-
----
-
-# 十二、真实模型中，怎样观察这几个分支？
-
-安装官方仓库要求的依赖后，可以通过 PyTorch Hub 加载预训练模型。下面的预处理沿用官方评估代码的缩放和标准化方式；首次加载需要联网下载模型。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/README.md)
-
-```python
-from pathlib import Path
-
-import torch
-from PIL import Image
-from torchvision import transforms
-
-
-image_path = Path("building.jpg")
-if not image_path.is_file():
-    raise FileNotFoundError(f"找不到图片：{image_path.resolve()}")
-
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
-
-model = torch.hub.load(
-    "serizba/salad",
-    "dinov2_salad",
-    trust_repo=True,
-).to(device).eval()
-
-preprocess = transforms.Compose([
-    transforms.Resize(
-        (322, 322),
-        interpolation=transforms.InterpolationMode.BILINEAR,
-    ),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225),
-    ),
-])
-
-with Image.open(image_path) as image:
-    x = preprocess(image.convert("RGB")).unsqueeze(0).to(device)
-
-with torch.inference_mode():
-    patch_map, cls_token = model.backbone(x)
-    head = model.aggregator
-
-    local_features = head.cluster_features(patch_map).flatten(2)
-    scores = head.score(patch_map).flatten(2)
-    global_feature = head.token_features(cls_token)
-
-    descriptor = head((patch_map, cls_token))
-
-print("DINOv2 局部输出：", tuple(patch_map.shape))
-print("DINOv2 CLS：", tuple(cls_token.shape))
-print("投影后的局部特征：", tuple(local_features.shape))
-print("普通槽位分数：", tuple(scores.shape))
-print("投影后的 CLS：", tuple(global_feature.shape))
-print("最终描述子：", tuple(descriptor.shape))
-print("最终描述子范数：", descriptor.norm(dim=-1).cpu())
-```
-
-对应形状为：
-
-```text
-DINOv2 局部输出：   (1, 768, 23, 23)
-DINOv2 CLS：        (1, 768)
-投影后的局部特征： (1, 128, 529)
-普通槽位分数：     (1, 64, 529)
-投影后的 CLS：     (1, 256)
-最终描述子：       (1, 8448)
-```
-
-这些维度对应官方模型结构；上面的真实图片推理示例没有在本次对话中实际运行权重，具体特征值需要由输入图片计算得到。[GitHub](https://raw.githubusercontent.com/serizba/salad/main/models/aggregators/salad.py)
 
 ---
 
